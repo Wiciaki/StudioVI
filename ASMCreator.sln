@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30011.22
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ASMCreator_Parser", "ASMCreator_Parser\ASMCreator_Parser.csproj", "{0946CEBD-777E-47DD-B85B-C472A5E35BAE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ASMCreator_Optimizer", "ASMCreator_Optimizer\ASMCreator_Optimizer.csproj", "{0946CEBD-777E-47DD-B85B-C472A5E35BAE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -1,4 +1,4 @@
-﻿namespace ASMCreator_Parser
+﻿namespace ASMCreator_Optimizer
 {
     using System;
     using System.Collections.Generic;
@@ -15,7 +15,7 @@
     {
         private static readonly List<string> Gsa = new List<string>(), Txt = new List<string>(), Mic = new List<string>();
 
-        private const string TestFolderName = "Studio";
+        private const string DesktopFolderName = "Studio";
 
         private static void Print(IEnumerable<string> content)
         {
@@ -51,7 +51,7 @@
 #if DEBUG
             if (args.Length == 0)
             {
-                args = Directory.GetFiles(Path.Combine(desktop, TestFolderName));
+                args = Directory.GetFiles(Path.Combine(desktop, DesktopFolderName));
             }
 #endif
 
@@ -213,7 +213,7 @@
         private static void Optimize()
         {
             var path = new List<Match>();
-            StepInto(IterateGsaMatches().First());
+            StepInto(IterateGsaMatches().First()); // rozpocznij przechodzenie po gsa
 
             void StepInto(Match m)
             {
@@ -296,7 +296,7 @@
                                 Txt[line1Index] = newline;
                             }
 
-                            // w przypadku txt - usuń cały bloczek z txt, kiedy nie jest nigdzie więcej używany
+                            // w przypadku txt - usuń operację z txt, kiedy nie jest nigdzie więcej używana
                             if (Txt.Count(l => l.Contains(operation)) == 1)
                             {
                                 // usuń zbędną operację
