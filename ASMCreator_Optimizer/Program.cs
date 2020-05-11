@@ -57,21 +57,21 @@
 
             // czytaj pliki o tym rozszerzeniu z drag & drop
             // działa też z wejściem jako parametr
-            var sources = new[] { "gsa", "txt", "mic" }.Select(ext => args.SingleOrDefault(p => Path.GetExtension(p) == $".{ext}")).ToArray();
+            var sources = Array.ConvertAll(new[] { "gsa", "txt", "mic" }, e => args.SingleOrDefault(p => Path.GetExtension(p) == $".{e}"));
 
-            if (sources.All(s => s == null))
+            if (Array.TrueForAll(sources, s => s == null))
             {
                 EndExecution("Przeciągnij pliki do optymalizacji na .exe lub podaj argumenty");
                 return;
             }
 
-            if (!sources.Any(s => s.EndsWith("gsa")))
+            if (!Array.Exists(sources, s => s.EndsWith("gsa")))
             {
                 EndExecution("Nie podano wymaganego pliku gsa");
                 return;
             }
 
-            if (!sources.Any(s => s.EndsWith("txt")))
+            if (!Array.Exists(sources, s => s.EndsWith("txt")))
             {
                 EndExecution("Nie podano wymaganego pliku txt");
                 return;
@@ -170,10 +170,11 @@
             return int.Parse(match.Groups["4"].Value);
         }
 
+        private static readonly Regex GsaRegex = new Regex(@"(\d+) ([A-Za-z0-9]+) +(\d+) +(\d+)");
+
         private static Match GsaMatch(string line)
         {
-            var gsaLineFormat = new Regex(@"(\d+) ([A-Za-z0-9]+) +(\d+) +(\d+)");
-            var match = gsaLineFormat.Match(line);
+            var match = GsaRegex.Match(line);
 
             if (!match.Success)
             {
@@ -183,13 +184,11 @@
             return match;
         }
 
-        private static readonly Regex GsaLineFormat = new Regex(@"(\d+) ([A-Za-z0-9]+) +(\d+) +(\d+)");
-
         private static IEnumerable<Match> IterateGsaMatches()
         {
             for (var i = 1; i <= Gsa.Count - 1; ++i)
             {
-                var match = GsaLineFormat.Match(Gsa[i]);
+                var match = GsaMatch(Gsa[i]);
 
                 if (!match.Success)
                 {
