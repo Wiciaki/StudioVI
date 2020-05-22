@@ -232,17 +232,9 @@
             return from match in regex.Matches(operation) select match.Value;
         }
 
-        private static void RemoveInstructionFromGsa(string instruction)
+        private static void UpdateGsaId(int oldId, int newId)
         {
-            var removeIndex = Gsa.FindIndex(l => l.Contains(instruction));
-            var removeMatch = GsaMatch(Gsa[removeIndex]);
-            var removeId = removeMatch.GetId();
-            var newId = removeMatch.GetFirstExit().ToString();
-
-            Gsa.RemoveAt(removeIndex);
-
-            // update other elements
-            foreach (var match in IterateGsa().Where(match => match.GetFirstExit() == removeId || match.GetSecondExit() == removeId))
+            foreach (var match in IterateGsa().Where(match => match.GetFirstExit() == oldId || match.GetSecondExit() == oldId))
             {
                 var index = GetGsaIndexForMatch(match);
                 var line = Gsa[index];
@@ -250,10 +242,43 @@
                 var name = match.GetName();
                 var length = line.IndexOf(name, StringComparison.InvariantCulture) + name.Length;
 
-                Gsa[index] = line.Substring(0, length) + line.Substring(length).Replace(removeId.ToString(), newId);
+                Gsa[index] = line.Substring(0, length) + line.Substring(length).Replace(oldId.ToString(), newId.ToString());
+            }
+        }
+
+        private static void RemoveInstruction(string instruction)
+        {
+            var oldIndex = Gsa.FindIndex(l => l.Contains(instruction));
+            var oldMatch = GsaMatch(Gsa[oldIndex]);
+            var oldId = oldMatch.GetId();
+            var newId = oldMatch.GetFirstExit();
+
+            Gsa.RemoveAt(oldIndex);
+
+            // połącz z elementem zastępującym
+            UpdateGsaId(oldId, newId);
+
+            for (var i = 2; i < Gsa.Count; i++)
+            {
+                oldId = GsaMatch(Gsa[i]).GetId();
+                newId = GsaMatch(Gsa[i - 1]).GetId() + 1;
+
+                if (oldId == newId)
+                {
+                    continue;
+                }
+
+                var oldIdStr = oldId.ToString();
+
+                var line = Gsa[i];
+                var length = line.IndexOf(oldIdStr, StringComparison.InvariantCulture) + oldIdStr.Length;
+
+                Gsa[i] = line.Substring(0, length).Replace(oldIdStr, newId.ToString()) + line.Substring(length);
+
+                UpdateGsaId(oldId, newId);
             }
 
-            // todo poprawa numeracji gsa
+            Gsa[0] = Gsa[0].Replace(oldId.ToString(), newId.ToString());
         }
 
         // część właściwa programu
@@ -303,22 +328,29 @@
                 var currName = current.GetName();
                 var prevName = previous.GetName();
 
-                var prevVars = GetOperationsByName(prevName).SelectMany(ExtractVariablesFromOperation).ToList();
+                var prevVars = GetOperationsByName(prevName).SelectMany(ExtractVariablesFromOperation);
+                var newLeftVars = GetOperationsByName(currName).Select(operation => ExtractVariablesFromOperation(operation).First());
 
-                // albo przenoszę cały bloczek albo nic
-                if (GetOperationsByName(currName).Select(operation => ExtractVariablesFromOperation(operation).First()).Any(prevVars.Contains))
+                if (prevVars.Intersect(newLeftVars).Any())
                 {
+                    // zbiory się przecinają, nic nie robię
                     continue;
                 }
 
-                RemoveInstructionFromGsa(currName);
+                RemoveInstruction(currName);
                 path.RemoveAt(i);
 
-                var instructionIndex = GetTxtIndexForName(currName);
-                var instructions = ExtractInstructionsFromTxtLine(Txt[instructionIndex]);
-                Txt.RemoveAt(instructionIndex);
+                var oldIndex = GetTxtIndexForName(currName);
+                var index = GetTxtIndexForName(prevName);
+                var line = Txt[index];
 
-                Txt[GetTxtIndexForName(prevName)] += instructions.Aggregate(string.Empty, (s, e) => $"{s} {e}");
+                var instructions = ExtractInstructionsFromTxtLine(Txt[oldIndex])
+                                  .Concat(ExtractInstructionsFromTxtLine(line))
+                                  .OrderBy(word => word)
+                                  .Aggregate(string.Empty, (s, e) => $"{s} {e}");
+
+                Txt[index] = line.Substring(0, line.IndexOf('=') + 1) + instructions;
+                Txt.RemoveAt(oldIndex);
             }
         }
 
@@ -355,7 +387,7 @@
                     if (line.Replace('=', ' ').TrimEnd() == name)
                     {
                         path.RemoveAt(i);
-                        RemoveInstructionFromGsa(name);
+                        RemoveInstruction(name);
                         Txt.RemoveAt(txtIndex);
                     }
                     else
