@@ -16,13 +16,6 @@
     {
         private const ConsoleColor FilePrintColor = ConsoleColor.Yellow;
 
-        private static void PrintLine(string message)
-        {
-            var line = Environment.NewLine;
-
-            Console.WriteLine(line + message + line);
-        }
-
         private static void PrintFile(string message, IEnumerable<string> content)
         {
             Console.WriteLine(message);
@@ -30,7 +23,8 @@
             var color = Console.ForegroundColor;
             Console.ForegroundColor = FilePrintColor;
 
-            PrintLine(string.Join(Environment.NewLine, content));
+            Console.WriteLine(string.Join(Environment.NewLine, content));
+            Console.WriteLine();
 
             Console.ForegroundColor = color;
         }
@@ -116,9 +110,9 @@
             PrintFile("WCZYTANO TXT:", Txt);
             PrintFile("WCZYTANO GSA:", Gsa);
 
+            Console.WriteLine("PRZETWARZAM...");
+            Console.WriteLine();
             OptimizePaths();
-
-            PrintLine("OPTYMALIZACJA ZAKOŃCZONA");
 
             PrintFile("GSA - PO EDYCJI:", Gsa);
             PrintFile("TXT - PO EDYCJI:", Txt);
@@ -324,8 +318,7 @@
                 var instructions = ExtractInstructionsFromTxtLine(Txt[instructionIndex]);
                 Txt.RemoveAt(instructionIndex);
 
-                var operationIndex = GetTxtIndexForName(prevName);
-                Txt[operationIndex] = instructions.Aggregate(Txt[operationIndex], (s, e) => $"{s} {e}");
+                Txt[GetTxtIndexForName(prevName)] += instructions.Aggregate(string.Empty, (s, e) => $"{s} {e}");
             }
         }
 
