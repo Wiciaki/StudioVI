@@ -331,26 +331,24 @@
 
         private static void AssignmentOptimization(IList<Match> path)
         {
-            // symbole, które zostały już przypisane w obecnej ścieżce
-            var assignedSymbols = new HashSet<string>();
+            // zmienne, które zostały już przypisane w obecnej ścieżce
+            var assignedVariables = new HashSet<string>();
 
             // iteruję; od tyłu, żeby zachować możliwość usuwania na bieżąco zbędnych bloków
             for (var i = path.Count - 1; i >= 0; i--)
             {
-                var name = path[i].GetName(); // ex. "Y1"
+                var name = path[i].GetName();
                 var txtIndex = GetTxtIndexForName(name);
-                var line = Txt[txtIndex]; // ex. "Y4 = y4 y5"
+                var line = Txt[txtIndex];
 
                 // multiple y's after =
-                foreach (var instruction in ExtractInstructionsFromTxtLine(line)) // ex. { "y4", "y5" }
+                foreach (var instruction in ExtractInstructionsFromTxtLine(line))
                 {
-                    var txtIndex2 = Txt.FindIndex(l => l.StartsWith(instruction));
-                    var operation = ExtractOperationFromTxtLine(Txt[txtIndex2]); // ex. "x:=3"
+                    var instructionIndex = Txt.FindIndex(l => l.StartsWith(instruction));
+                    var operation = ExtractOperationFromTxtLine(Txt[instructionIndex]);
+                    var variable = ExtractVariablesFromOperation(operation).First();
 
-                    // pobierz nazwę zmiennej z wyrażenia
-                    var symbol = ExtractVariablesFromOperation(operation).First(); // ex. "x"
-
-                    if (assignedSymbols.Add(symbol))
+                    if (assignedVariables.Add(variable))
                     {
                         continue;
                     }
@@ -358,10 +356,10 @@
                     // optymalizacja konieczna!
                     Console.WriteLine($"USUWAM z {line} - przypisanie {instruction} {operation} jest zbędne!");
 
-                    var newline = line.Replace(" " + instruction, "");
+                    line = line.Replace(" " + instruction, string.Empty);
 
                     // brak więcej operacji, obsługuję gsa
-                    if (newline.Replace('=', ' ').TrimEnd() == name)
+                    if (line.Replace('=', ' ').TrimEnd() == name)
                     {
                         path.RemoveAt(i);
                         RemoveInstructionFromGsa(name);
@@ -370,14 +368,14 @@
                     else
                     {
                         // usuń tylko jedne przypisanie z bloczka
-                        Txt[txtIndex] = newline;
+                        Txt[txtIndex] = line;
                     }
 
                     // w przypadku txt - usuń operację z txt, kiedy nie jest nigdzie więcej używana
                     if (Txt.Count(l => l.Contains(instruction)) == 1)
                     {
                         // usuń zbędną operację
-                        Txt.RemoveAt(txtIndex2);
+                        Txt.RemoveAt(instructionIndex);
                     }
                 }
             }
