@@ -113,6 +113,7 @@
             Console.WriteLine("PRZETWARZAM...");
             Console.WriteLine();
             OptimizePaths();
+            OptimizeVariables();
 
             PrintFile("GSA - PO EDYCJI:", Gsa);
             PrintFile("TXT - PO EDYCJI:", Txt);
@@ -260,22 +261,21 @@
 
             for (var i = 2; i < Gsa.Count; i++)
             {
-                oldId = GsaMatch(Gsa[i]).GetId();
+                var match = GsaMatch(Gsa[i]);
+
+                oldId = match.GetId();
                 newId = GsaMatch(Gsa[i - 1]).GetId() + 1;
 
-                if (oldId == newId)
+                if (oldId != newId)
                 {
-                    continue;
+                    var oldIdStr = oldId.ToString();
+                    var line = Gsa[i];
+                    var length = line.IndexOf(oldIdStr, StringComparison.InvariantCulture) + oldIdStr.Length;
+
+                    Gsa[i] = line.Substring(0, length).Replace(oldIdStr, newId.ToString()) + line.Substring(length);
+
+                    UpdateGsaId(oldId, newId);
                 }
-
-                var oldIdStr = oldId.ToString();
-
-                var line = Gsa[i];
-                var length = line.IndexOf(oldIdStr, StringComparison.InvariantCulture) + oldIdStr.Length;
-
-                Gsa[i] = line.Substring(0, length).Replace(oldIdStr, newId.ToString()) + line.Substring(length);
-
-                UpdateGsaId(oldId, newId);
             }
 
             Gsa[0] = Gsa[0].Replace(oldId.ToString(), newId.ToString());
@@ -344,13 +344,37 @@
                 var index = GetTxtIndexForName(prevName);
                 var line = Txt[index];
 
-                var instructions = ExtractInstructionsFromTxtLine(Txt[oldIndex])
-                                  .Concat(ExtractInstructionsFromTxtLine(line))
-                                  .OrderBy(word => word)
-                                  .Aggregate(string.Empty, (s, e) => $"{s} {e}");
+                Txt[index] = line.Substring(0, line.IndexOf('=') + 1)
+                           + ExtractInstructionsFromTxtLine(Txt[oldIndex])
+                            .Concat(ExtractInstructionsFromTxtLine(line))
+                            .OrderBy(word => word)
+                            .Aggregate(string.Empty, (s, e) => $"{s} {e}");
 
-                Txt[index] = line.Substring(0, line.IndexOf('=') + 1) + instructions;
                 Txt.RemoveAt(oldIndex);
+            }
+        }
+
+        private static void OptimizeVariables()
+        {
+            var i = 0;
+
+            foreach (var match in IterateGsa())
+            {
+                var name = match.GetName();
+
+                if (name[0] == 'Y')
+                {
+                    var newName = "Y" + ++i;
+
+                    if (name != newName)
+                    {
+                        var gIndex = GetGsaIndexForMatch(match);
+                        Gsa[gIndex] = Gsa[gIndex].Replace(name, newName);
+
+                        var tIndex = GetTxtIndexForName(name);
+                        Txt[tIndex] = Txt[tIndex].Replace(name, newName);
+                    }
+                }
             }
         }
 
@@ -363,8 +387,8 @@
             for (var i = path.Count - 1; i >= 0; i--)
             {
                 var name = path[i].GetName();
-                var txtIndex = GetTxtIndexForName(name);
-                var line = Txt[txtIndex];
+                var index = GetTxtIndexForName(name);
+                var line = Txt[index];
 
                 // multiple y's after =
                 foreach (var instruction in ExtractInstructionsFromTxtLine(line))
@@ -381,25 +405,24 @@
                     // optymalizacja konieczna!
                     Console.WriteLine($"USUWAM z {line} - przypisanie {instruction} {operation} jest zbędne!");
 
-                    line = line.Replace(" " + instruction, string.Empty);
+                    line = line.Replace($" {instruction}", string.Empty);
 
                     // brak więcej operacji, obsługuję gsa
-                    if (line.Replace('=', ' ').TrimEnd() == name)
+                    if (!ExtractInstructionsFromTxtLine(line).Any())
                     {
                         path.RemoveAt(i);
-                        RemoveInstruction(name);
-                        Txt.RemoveAt(txtIndex);
+                        RemoveInstruction(instruction);
+                        Txt.RemoveAt(index);
                     }
                     else
                     {
                         // usuń tylko jedne przypisanie z bloczka
-                        Txt[txtIndex] = line;
+                        Txt[index] = line;
                     }
 
                     // w przypadku txt - usuń operację z txt, kiedy nie jest nigdzie więcej używana
                     if (Txt.Count(l => l.Contains(instruction)) == 1)
                     {
-                        // usuń zbędną operację
                         Txt.RemoveAt(instructionIndex);
                     }
                 }
