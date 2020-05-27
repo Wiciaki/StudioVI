@@ -35,7 +35,7 @@
             Console.WriteLine("Zamknij program i spróbuj jeszcze raz");
             Console.ReadKey(true);
 
-            Environment.Exit(int.MinValue);
+            Environment.Exit(-1);
         }
 
         private static readonly List<string> Gsa, Txt, Mic;
@@ -111,7 +111,7 @@
             PrintFile("WCZYTANO GSA:", Gsa);
 
             Console.WriteLine("PRZETWARZAM...");
-            Console.WriteLine();
+
             OptimizePaths();
             OptimizeVariables();
 
@@ -286,6 +286,7 @@
         private static void OptimizePaths()
         {
             var path = new List<Match>();
+            var optimized = true;
 
             // funkcja rekurencyjnego przechodzenia po drzewie
             void StepInto(Match match)
@@ -296,8 +297,8 @@
                 // przetwarzam wykrytą ścieżkę, kiedy napotkam if'a lub koniec
                 if (second != 0 || first == 0)
                 {
-                    MergeOptimization(path);
-                    //AssignmentOptimization(path);
+                    MergeOptimization(path, ref optimized);
+                    //AssignmentOptimization(path, ref optimized);
 
                     path.Clear();
                 }
@@ -314,10 +315,13 @@
                 }
             }
 
-            StepInto(IterateGsa().First()); // rozpocznij przechodzenie po gsa
+            while (!(optimized ^= true))
+            {
+                StepInto(IterateGsa().First()); // rozpocznij przechodzenie po gsa
+            }
         }
 
-        private static void MergeOptimization(IList<Match> path)
+        private static void MergeOptimization(IList<Match> path, ref bool optimized)
         {
             // w późniejszej wersji umieszczę tutaj stan
 
@@ -337,6 +341,8 @@
                     continue;
                 }
 
+                optimized = true;
+
                 RemoveInstruction(currName);
                 path.RemoveAt(i);
 
@@ -354,31 +360,7 @@
             }
         }
 
-        private static void OptimizeVariables()
-        {
-            var i = 0;
-
-            foreach (var match in IterateGsa())
-            {
-                var name = match.GetName();
-
-                if (name[0] == 'Y')
-                {
-                    var newName = "Y" + ++i;
-
-                    if (name != newName)
-                    {
-                        var gIndex = GetGsaIndexForMatch(match);
-                        Gsa[gIndex] = Gsa[gIndex].Replace(name, newName);
-
-                        var tIndex = GetTxtIndexForName(name);
-                        Txt[tIndex] = Txt[tIndex].Replace(name, newName);
-                    }
-                }
-            }
-        }
-
-        private static void AssignmentOptimization(IList<Match> path)
+        private static void AssignmentOptimization(IList<Match> path, ref bool optimized)
         {
             // zmienne, które zostały już przypisane w obecnej ścieżce
             var assignedVariables = new HashSet<string>();
@@ -402,6 +384,8 @@
                         continue;
                     }
 
+                    optimized = true;
+
                     // optymalizacja konieczna!
                     Console.WriteLine($"USUWAM z {line} - przypisanie {instruction} {operation} jest zbędne!");
 
@@ -424,6 +408,30 @@
                     if (Txt.Count(l => l.Contains(instruction)) == 1)
                     {
                         Txt.RemoveAt(instructionIndex);
+                    }
+                }
+            }
+        }
+
+        private static void OptimizeVariables()
+        {
+            var i = 0;
+
+            foreach (var match in IterateGsa())
+            {
+                var name = match.GetName();
+
+                if (name[0] == 'Y')
+                {
+                    var newName = "Y" + ++i;
+
+                    if (name != newName)
+                    {
+                        var gIndex = GetGsaIndexForMatch(match);
+                        Gsa[gIndex] = Gsa[gIndex].Replace(name, newName);
+
+                        var tIndex = GetTxtIndexForName(name);
+                        Txt[tIndex] = Txt[tIndex].Replace(name, newName);
                     }
                 }
             }
