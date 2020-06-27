@@ -22,10 +22,7 @@
 
             var color = Console.ForegroundColor;
             Console.ForegroundColor = FilePrintColor;
-
-            Console.WriteLine(string.Join(Environment.NewLine, content));
-            Console.WriteLine();
-
+            Console.WriteLine(content.Aggregate(string.Empty, (e, s) => e + s + Environment.NewLine));
             Console.ForegroundColor = color;
         }
 
@@ -113,7 +110,7 @@
             Console.WriteLine("PRZETWARZAM...");
 
             OptimizePaths();
-            OptimizeVariables();
+            OptimizeGsaVariables();
 
             PrintFile("GSA - PO EDYCJI:", Gsa);
             PrintFile("TXT - PO EDYCJI:", Txt);
@@ -144,6 +141,12 @@
 
                 if (source == null)
                 {
+                    continue;
+                }
+
+                if (Path.GetExtension(source) == ".mic")
+                {
+                    // usunąć po dodaniu obsługi .mic
                     continue;
                 }
 
@@ -189,11 +192,10 @@
 
         private static int GetSecondExit(this Match match) => int.Parse(match.Groups["4"].Value);
 
-        private static int GetGsaIndexForMatch(Match m)
+        private static int GetIndexForMatch(Match match)
         {
-            var id = m.GetId().ToString();
-
-            return Gsa.FindIndex(l => l.TrimStart().StartsWith(id));
+            var id = match.GetId().ToString();
+            return Gsa.Skip(1).ToList().FindIndex(line => line.TrimStart().StartsWith(id)) + 1;
         }
 
         private static int GetTxtIndexForName(string name)
@@ -204,19 +206,53 @@
         // "y2" -> "x:=y+2"
         private static string GetOperationForInstruction(string instruction)
         {
-            return ExtractOperationFromTxtLine(Txt.Find(line => line.StartsWith(instruction)));
+            return ExtractOperationFromTxtLine(Txt.Find(l => l.Contains(instruction)));
+        }
+
+        // "x:=y+2" -> "y2"
+        private static string GetInstructionForOperation(string operation)
+        {
+            return Txt[Txt.FindIndex(line => line.Contains(operation))].Substring(0, 2);
         }
 
         // "Y5" -> { "x:=7", "y:=5" }
         private static IEnumerable<string> GetOperationsByName(string name)
         {
-            return ExtractInstructionsFromTxtLine(Txt[GetTxtIndexForName(name)]).Select(GetOperationForInstruction);
+            var i = GetTxtIndexForName(name);
+
+            return i == -1 ? Enumerable.Empty<string>() : ExtractInstructionsFromTxtLine(Txt[i]);
         }
 
         // "Y3 = y3 y4" -> { "y3", "y4" }
         private static IEnumerable<string> ExtractInstructionsFromTxtLine(string line)
         {
             return line.Split(' ').Skip(2);
+        }
+
+        private static IEnumerable<Match> GetChildrenForId(params int[] ids)
+        {
+            return from match in IterateGsa() let id = match.GetId() where id != 0 && ids.Contains(id) select match;
+        }
+
+        private static IEnumerable<Match> GetPathForMatch(Match match)
+        {
+            do
+            {
+                yield return match;
+                match = GetChildrenForId(match.GetFirstExit()).FirstOrDefault();
+            }
+            while (match?.GetSecondExit() == 0 && GetParents(match).Count() == 1 && match.GetName() != "End");
+        }
+
+        private static IEnumerable<string> GetOperationsForPath(IEnumerable<Match> path)
+        {
+            return path.Select(match => match.GetName()).SelectMany(GetOperationsByName);
+        }
+
+        private static IEnumerable<Match> GetParents(Match match)
+        {
+            var id = match.GetId();
+            return from m in IterateGsa() where m.GetFirstExit() == id || m.GetSecondExit() == id select m;
         }
 
         // "y1  :  y:=1"
@@ -229,15 +265,14 @@
         private static IEnumerable<string> ExtractVariablesFromOperation(string operation)
         {
             var regex = new Regex("[a-z][a-z0-9]*");
-
             return from match in regex.Matches(operation) select match.Value;
         }
 
-        private static void UpdateGsaId(int oldId, int newId)
+        private static void UpdatePointing(int oldId, int newId)
         {
             foreach (var match in IterateGsa().Where(match => match.GetFirstExit() == oldId || match.GetSecondExit() == oldId))
             {
-                var index = GetGsaIndexForMatch(match);
+                var index = GetIndexForMatch(match);
                 var line = Gsa[index];
 
                 var name = match.GetName();
@@ -257,7 +292,7 @@
             Gsa.RemoveAt(oldIndex);
 
             // połącz z elementem zastępującym
-            UpdateGsaId(oldId, newId);
+            UpdatePointing(oldId, newId);
 
             for (var i = 2; i < Gsa.Count; i++)
             {
@@ -274,11 +309,37 @@
 
                     Gsa[i] = line.Substring(0, length).Replace(oldIdStr, newId.ToString()) + line.Substring(length);
 
-                    UpdateGsaId(oldId, newId);
+                    UpdatePointing(oldId, newId);
                 }
             }
 
             Gsa[0] = Gsa[0].Replace(oldId.ToString(), newId.ToString());
+        }
+
+        private static void OptimizeGsaVariables()
+        {
+            var i = 0;
+
+            foreach (var match in IterateGsa())
+            {
+                var name = match.GetName();
+
+                if (name[0] != 'Y')
+                {
+                    continue;
+                }
+
+                var expected = "Y" + ++i;
+
+                if (name != expected)
+                {
+                    var gIndex = GetIndexForMatch(match);
+                    Gsa[gIndex] = Gsa[gIndex].Replace(name, expected);
+
+                    var tIndex = GetTxtIndexForName(name);
+                    Txt[tIndex] = Txt[tIndex].Replace(name, expected);
+                }
+            }
         }
 
         // część właściwa programu
@@ -294,10 +355,10 @@
                 var first = match.GetFirstExit();
                 var second = match.GetSecondExit();
 
-                // przetwarzam wykrytą ścieżkę, kiedy napotkam if'a lub koniec
-                if (second != 0 || first == 0)
+                // przetwarzam wykrytą ścieżkę, kiedy napotkam if'a, koniec lub istnieją inne wejścia
+                if (second != 0 || first == 0 || GetParents(match).Count() != 1)
                 {
-                    MergeOptimization(path, ref optimized);
+                    MergeBlocksOptimization(path, ref optimized);
                     //AssignmentOptimization(path, ref optimized);
 
                     path.Clear();
@@ -309,22 +370,33 @@
                     path.Add(match);
                 }
 
-                foreach (var m in from m in IterateGsa() let id = m.GetId() where id != 0 && (id == first || id == second) select m)
+                var children = GetChildrenForId(first, second).ToArray();
+
+                if (children.Length == 2)
                 {
-                    StepInto(m);
+                    var path1 = GetPathForMatch(children[0]).ToArray();
+                    var path2 = GetPathForMatch(children[1]).ToArray();
+
+                    if (RemovePathOptimization(path1, path2) || ExtractMutualOptimization(path1, path2))
+                    {
+                        optimized = true;
+                        return;
+                    }
                 }
+
+                Array.ForEach(children, StepInto);
             }
 
             while (!(optimized ^= true))
             {
-                StepInto(IterateGsa().First()); // rozpocznij przechodzenie po gsa
+                // rozpocznij przechodzenie po gsa
+                StepInto(IterateGsa().First());
             }
         }
 
-        private static void MergeOptimization(IList<Match> path, ref bool optimized)
+        private static void MergeBlocksOptimization(IList<Match> path, ref bool optimized)
         {
-            // w późniejszej wersji umieszczę tutaj stan
-
+            // w późniejszej wersji tutaj powinien być przechowywany również stan
             for (var i = path.Count - 1; i > 0; --i)
             {
                 var current = path[i];
@@ -333,7 +405,7 @@
                 var prevName = previous.GetName();
 
                 var prevVars = GetOperationsByName(prevName).SelectMany(ExtractVariablesFromOperation);
-                var newLeftVars = GetOperationsByName(currName).Select(operation => ExtractVariablesFromOperation(operation).First());
+                var newLeftVars = GetOperationsByName(currName).Select(op => ExtractVariablesFromOperation(op).First());
 
                 if (prevVars.Intersect(newLeftVars).Any())
                 {
@@ -354,10 +426,172 @@
                            + ExtractInstructionsFromTxtLine(Txt[oldIndex])
                             .Concat(ExtractInstructionsFromTxtLine(line))
                             .OrderBy(word => word)
-                            .Aggregate(string.Empty, (s, e) => $"{s} {e}");
+                            .Aggregate(string.Empty, (s, e) => s + " " + e);
 
                 Txt.RemoveAt(oldIndex);
             }
+        }
+
+        private static bool RemovePathOptimization(IList<Match> path1, IList<Match> path2)
+        {
+            // działa tylko wtedy, gdy mamy blok warunkowy, z którego wychodzą puste ścieżki po obu stronach
+            // w zadanych przykładach zbędne; może się przydać w przyszłości
+            return false;
+
+            //var set1 = GetOperationsForPath(path1).ToArray();
+            //var set2 = GetOperationsForPath(path2).ToArray();
+
+            //if (!set2.Except(set1).Any())
+            //{
+            //    path1 = path2;
+            //}
+            //else if (set1.Except(set2).Any())
+            //{
+            //    return false;
+            //}
+
+            //var parentName = GetParents(path1[0]).Single().GetName();
+
+            //foreach (var name in path1.Select(match => match.GetName()))
+            //{
+            //    RemoveInstruction(name);
+            //    Txt.RemoveAt(Txt.FindIndex(line => line.StartsWith(name)));
+            //}
+
+            //RemoveInstruction(parentName);
+            //Txt.RemoveAt(Txt.FindIndex(line => line.StartsWith(parentName)));
+
+            //return true;
+        }
+
+        private static bool ExtractMutualOptimization(IList<Match> path1, IList<Match> path2)
+        {
+            var intersection = GetOperationsForPath(path1).Intersect(GetOperationsForPath(path2)).ToArray();
+
+            if (intersection.Length == 0)
+            {
+                // nic do wyprowadzenia
+                return false;
+            }
+
+            // oczywiście, nie musi być tak że pierwszy element w ścieżce ma tylko 1 rodzica
+            var child = GetParents(path1[0]).Single(); // wskazuje na blok warunkowy
+            // var parent = GetParents(child).Single();
+
+            // dla nadania nowemu bloczkowi id oraz nazwy
+            var last = IterateGsa().Reverse().First(match => match.GetName().StartsWith("Y"));
+
+            var gsaIndex = GetIndexForMatch(last);
+            var txtIndex = Txt.IndexOf(string.Empty);
+
+            var id = last.GetId();
+            var childId = child.GetId();
+
+            // tworzę miejsce na nowe bloki
+            foreach (var match in IterateGsa().Reverse())
+            {
+                var oldId = match.GetId();
+                var newId = oldId + intersection.Length;
+
+                UpdatePointing(oldId, newId);
+
+                var i = GetIndexForMatch(match);
+                Gsa[i] = Gsa[i].Replace(oldId.ToString(), newId.ToString());
+
+                if (oldId == childId)
+                {
+                    break;
+                }
+            }
+
+            // dodaję nowe operacje
+            for (var i = 1; i <= intersection.Length; ++i)
+            {
+                var bindId = childId + intersection.Length;
+                UpdatePointing(bindId, id + i);
+
+                var name = $"Y{id + i}";
+                Gsa.Insert(gsaIndex + i, $"  {id + i} {name}     {bindId}      0     ");
+                Txt.Insert(txtIndex + i - 1, $"{name} = {intersection[i - 1]}");
+            }
+
+            var names = new[] { path1, path2 }.SelectMany(p => p).Select(m => m.GetName()).Distinct();
+
+            // usun wszystkie zbedne operacje z Txt
+            foreach (var name in names)
+            {
+                var index = GetTxtIndexForName(name);
+                var line = intersection.Aggregate(Txt[index], (s, e) => s.Replace(' ' + e, string.Empty));
+
+                if (line.TrimEnd().EndsWith('='))
+                {
+                    Txt.RemoveAt(index);
+                    RemoveInstruction(name);
+                }
+                else
+                {
+                    Txt[index] = line;
+                }
+            }
+
+            return true;
+
+            //var childId = 0;
+
+            //Gsa.Insert(insertIndex, );
+
+            ////
+
+            //var parent = GetParents(helper).Single();
+            //var parentName = parent.GetName();
+            //var grandparents = GetParents(parent).ToArray();
+
+            //foreach (var match in IterateGsa().Reverse())
+            //{
+            //    var id = match.GetId();
+            //    var i = GetIndexForMatch(match);
+
+            //    Gsa[i] = Gsa[i].Replace(id.ToString(), (id + 1).ToString());
+            //    UpdatePointing(id, id + 1);
+
+            //    if (id == insertId)
+            //    {
+            //        break;
+            //    }
+            //}
+
+            //var newId = int.Parse(IterateGsa().Reverse().First(m => m.GetName().StartsWith("Y")).GetName().Substring(1)) - 1;
+            //var value = Gsa[insertIndex].Replace(oldId.ToString(), newId.ToString()).Replace(helper.GetFirstExit().ToString(), Gsa[Gsa.FindIndex(line => line.Contains(parentName))].TrimStart().Substring(0, 1));
+
+            //Gsa.Insert(insertIndex, value);
+
+            //foreach (var match in grandparents)
+            //{
+            //    var index = GetIndexForMatch(match);
+            //    var m = GsaMatch(Gsa[index]);
+
+            //    Gsa[index] = Gsa[index].Replace(m.GetFirstExit().ToString(), newId.ToString());
+            //}
+
+            //var instructions = mutual.Select(GetInstructionForOperation).ToArray();
+            //Txt.Insert(Txt.IndexOf(string.Empty), $"Y{newId + 1} = {string.Join(' ', instructions.OrderBy(o => o))}");
+
+            //// usun wszystkie zbedne operacje z Txt
+            //foreach (var name in new[] { path1, path2 }.SelectMany(p => p).Select(m => m.GetName()))
+            //{
+            //    var index = GetTxtIndexForName(name);
+            //    var line = instructions.Aggregate(Txt[index], (s, e) => s.Replace(e, string.Empty));
+
+            //    if (line.TrimEnd().EndsWith('='))
+            //    {
+            //        Txt.RemoveAt(index);
+            //        RemoveInstruction(name);
+            //    }
+            //    else
+            //    {
+            //        Txt[index] = line;
+            //    }
+            //}
         }
 
         private static void AssignmentOptimization(IList<Match> path, ref bool optimized)
@@ -408,30 +642,6 @@
                     if (Txt.Count(l => l.Contains(instruction)) == 1)
                     {
                         Txt.RemoveAt(instructionIndex);
-                    }
-                }
-            }
-        }
-
-        private static void OptimizeVariables()
-        {
-            var i = 0;
-
-            foreach (var match in IterateGsa())
-            {
-                var name = match.GetName();
-
-                if (name[0] == 'Y')
-                {
-                    var newName = "Y" + ++i;
-
-                    if (name != newName)
-                    {
-                        var gIndex = GetGsaIndexForMatch(match);
-                        Gsa[gIndex] = Gsa[gIndex].Replace(name, newName);
-
-                        var tIndex = GetTxtIndexForName(name);
-                        Txt[tIndex] = Txt[tIndex].Replace(name, newName);
                     }
                 }
             }
