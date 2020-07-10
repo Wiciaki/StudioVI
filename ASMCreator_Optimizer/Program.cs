@@ -5,6 +5,7 @@
     using System.Diagnostics.CodeAnalysis;
 #if !DEBUG
     using System.Diagnostics;
+    using System.Threading;
 #endif
     using System.IO;
     using System.Linq;
@@ -52,8 +53,7 @@
             _ => throw new IndexOutOfRangeException()
         };
 
-        // kod jest generyczny i zadziała na windows, linux, może mac
-        // wystarczy skompilować pod odpowiednią wersję systemu
+        // kod jest uniwersalny i zadziała na windows, linux, mac - wystarczy skompilować pod odpowiednią wersję systemu
         private static void Main(string[] args)
         {
             // zezwól na polskie znaki w konsoli
@@ -98,10 +98,12 @@
             {
                 var source = sources[i];
 
-                if (source != null)
+                if (source == null)
                 {
-                    GetListByIndex(i).AddRange(File.ReadAllLines(source));
+                    continue;
                 }
+
+                GetListByIndex(i).AddRange(File.ReadAllLines(source));
             }
 
             PrintFile("WCZYTANO TXT:", Txt);
@@ -124,11 +126,11 @@
             {
                 foreach (var dir in dirs)
                 {
-                    Console.WriteLine($"Usuwam stary folder {dir}");
-                    Directory.Delete(dir, true);
+                    Console.WriteLine($"Sugerowane usunięcie z pulpitu starego folderu {dir}");
+                    //Directory.Delete(dir, true);
                 }
 
-                Console.WriteLine();
+                Thread.Sleep(3000);
             }
 
             var directoryName = $"Optimized_{DateTime.Now:yyyy-dd-M--HH-mm-ss}"; // format nazwy folderu
@@ -144,9 +146,9 @@
                     continue;
                 }
 
+                // usunąć po dodaniu obsługi .mic
                 if (Path.GetExtension(source) == ".mic")
                 {
-                    // usunąć po dodaniu obsługi .mic
                     continue;
                 }
 
@@ -167,7 +169,7 @@
 #endif
         }
 
-        private static readonly Regex GsaRegex = new Regex(@"(\d+) ([A-Za-z0-9]+) +(\d+) +(\d+)");
+        private static readonly Regex GsaRegex = new Regex(@"(\d+)[\t ]+([A-Za-z0-9]+)[\t ]+(\d+)[\t ]+(\d+)");
 
         private static Match GsaMatch(string line)
         {
@@ -195,25 +197,26 @@
         private static int GetIndexForMatch(Match match)
         {
             var id = match.GetId().ToString();
+
             return Gsa.Skip(1).ToList().FindIndex(line => line.TrimStart().StartsWith(id)) + 1;
         }
 
         private static int GetTxtIndexForName(string name)
         {
-            return Txt.FindIndex(l => l.StartsWith(name));
+            return Txt.FindIndex(line => line.StartsWith(name));
         }
 
-        // "y2" -> "x:=y+2"
-        private static string GetOperationForInstruction(string instruction)
-        {
-            return ExtractOperationFromTxtLine(Txt.Find(l => l.Contains(instruction)));
-        }
+        //// "y2" -> "x:=y+2"
+        //private static string GetOperationForInstruction(string instruction)
+        //{
+        //    return ExtractOperationFromTxtLine(Txt.Find(l => l.Contains(instruction)));
+        //}
 
-        // "x:=y+2" -> "y2"
-        private static string GetInstructionForOperation(string operation)
-        {
-            return Txt[Txt.FindIndex(line => line.Contains(operation))].Substring(0, 2);
-        }
+        //// "x:=y+2" -> "y2"
+        //private static string GetInstructionForOperation(string operation)
+        //{
+        //    return Txt[Txt.FindIndex(line => line.Contains(operation))].Substring(0, 2);
+        //}
 
         // "Y5" -> { "x:=7", "y:=5" }
         private static IEnumerable<string> GetOperationsByName(string name)
@@ -241,7 +244,7 @@
                 yield return match;
                 match = GetChildrenForId(match.GetFirstExit()).FirstOrDefault();
             }
-            while (match?.GetSecondExit() == 0 && GetParents(match).Count() == 1 && match.GetName() != "End");
+            while (match?.GetSecondExit() == 0 && GetParents(match).Count() == 1 && match.GetName().ToLower() != "end");
         }
 
         private static IEnumerable<string> GetOperationsForPath(IEnumerable<Match> path)
@@ -252,6 +255,7 @@
         private static IEnumerable<Match> GetParents(Match match)
         {
             var id = match.GetId();
+
             return from m in IterateGsa() where m.GetFirstExit() == id || m.GetSecondExit() == id select m;
         }
 
@@ -264,8 +268,13 @@
         // "y:=x1+2" -> { "y", "x1" }
         private static IEnumerable<string> ExtractVariablesFromOperation(string operation)
         {
+            var array = Txt.Find(l => l.StartsWith(operation))?.Split(':') ?? throw new ArgumentException();
+            array[0] = string.Empty;
+
+            var line = string.Join(string.Empty, array).TrimStart();
             var regex = new Regex("[a-z][a-z0-9]*");
-            return from match in regex.Matches(operation) select match.Value;
+
+            return from match in regex.Matches(line) select match.Value;
         }
 
         private static void UpdatePointing(int oldId, int newId)
@@ -330,15 +339,13 @@
                 }
 
                 var expected = "Y" + ++i;
+                var spaces = Gsa[1].Split('0')[0];
 
-                if (name != expected)
-                {
-                    var gIndex = GetIndexForMatch(match);
-                    Gsa[gIndex] = Gsa[gIndex].Replace(name, expected);
+                var gIndex = GetIndexForMatch(match);
+                Gsa[gIndex] = spaces + Gsa[gIndex].TrimStart().Replace(name, expected);
 
-                    var tIndex = GetTxtIndexForName(name);
-                    Txt[tIndex] = Txt[tIndex].Replace(name, expected);
-                }
+                var tIndex = GetTxtIndexForName(name);
+                Txt[tIndex] = Txt[tIndex].Replace(name, expected);
             }
         }
 
@@ -347,10 +354,9 @@
         private static void OptimizePaths()
         {
             var path = new List<Match>();
-            var optimized = true;
 
             // funkcja rekurencyjnego przechodzenia po drzewie
-            void StepInto(Match match)
+            bool StepInto(Match match)
             {
                 var first = match.GetFirstExit();
                 var second = match.GetSecondExit();
@@ -358,7 +364,11 @@
                 // przetwarzam wykrytą ścieżkę, kiedy napotkam if'a, koniec lub istnieją inne wejścia
                 if (second != 0 || first == 0 || GetParents(match).Count() != 1)
                 {
-                    MergeBlocksOptimization(path, ref optimized);
+                    if (MergeBlocksOptimization(path))
+                    {
+                        return true;
+                    }
+
                     //AssignmentOptimization(path, ref optimized);
 
                     path.Clear();
@@ -379,24 +389,22 @@
 
                     if (RemovePathOptimization(path1, path2) || ExtractMutualOptimization(path1, path2))
                     {
-                        optimized = true;
-                        return;
+                        return true;
                     }
                 }
 
-                Array.ForEach(children, StepInto);
+                return children.Any(StepInto);
             }
 
-            while (!(optimized ^= true))
-            {
-                // rozpocznij przechodzenie po gsa
-                StepInto(IterateGsa().First());
-            }
+            // rekurencyjne przechodzenie po gsa
+            while (StepInto(IterateGsa().First()))
+            { }
         }
 
-        private static void MergeBlocksOptimization(IList<Match> path, ref bool optimized)
+        private static bool MergeBlocksOptimization(IList<Match> path)
         {
-            // w późniejszej wersji tutaj powinien być przechowywany również stan
+            var optimized = false;
+
             for (var i = path.Count - 1; i > 0; --i)
             {
                 var current = path[i];
@@ -405,7 +413,7 @@
                 var prevName = previous.GetName();
 
                 var prevVars = GetOperationsByName(prevName).SelectMany(ExtractVariablesFromOperation);
-                var newLeftVars = GetOperationsByName(currName).Select(op => ExtractVariablesFromOperation(op).First());
+                var newLeftVars = GetOperationsByName(currName).Select(operation => ExtractVariablesFromOperation(operation).First());
 
                 if (prevVars.Intersect(newLeftVars).Any())
                 {
@@ -426,10 +434,12 @@
                            + ExtractInstructionsFromTxtLine(Txt[oldIndex])
                             .Concat(ExtractInstructionsFromTxtLine(line))
                             .OrderBy(word => word)
-                            .Aggregate(string.Empty, (s, e) => s + " " + e);
+                            .Aggregate(string.Empty, (s, e) => $"{s} {e}");
 
                 Txt.RemoveAt(oldIndex);
             }
+
+            return optimized;
         }
 
         private static bool RemovePathOptimization(IList<Match> path1, IList<Match> path2)
@@ -521,12 +531,12 @@
             foreach (var name in names)
             {
                 var index = GetTxtIndexForName(name);
-                var line = intersection.Aggregate(Txt[index], (s, e) => s.Replace(' ' + e, string.Empty));
+                var line = intersection.Aggregate(Txt[index], (s, e) => s.Replace(" " + e, string.Empty));
 
                 if (line.TrimEnd().EndsWith('='))
                 {
-                    Txt.RemoveAt(index);
                     RemoveInstruction(name);
+                    Txt.RemoveAt(index);
                 }
                 else
                 {
